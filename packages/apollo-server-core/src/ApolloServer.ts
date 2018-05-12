@@ -17,6 +17,8 @@ import {
   ExecutionParams,
 } from 'subscriptions-transport-ws';
 
+import { GraphQLUpload } from 'apollo-upload-server';
+
 import { formatApolloErrors } from './errors';
 import { GraphQLServerOptions as GraphQLOptions } from './graphqlOptions';
 import { LogFunction, LogAction, LogStep } from './logging';
@@ -52,6 +54,7 @@ export class ApolloServerBase<Request = RequestInit> {
   public disableTools: boolean = !isDev;
   // set in the listen function if subscriptions are enabled
   public subscriptionsPath: string;
+  private fileUploadConfig: boolean | Record<string, any>;
 
   private schema: GraphQLSchema;
   private context?: Context | ContextFunction;
@@ -72,6 +75,7 @@ export class ApolloServerBase<Request = RequestInit> {
       typeDefs,
       introspection,
       mocks,
+      uploads = true,
       ...requestOptions
     } = config;
 
@@ -89,15 +93,28 @@ export class ApolloServerBase<Request = RequestInit> {
         : noIntro;
     }
 
+    this.fileUploadConfig = uploads;
+
     this.requestOptions = requestOptions;
     this.context = context;
+
+    const typeDefinitions = Array.isArray(typeDefs)
+      ? typeDefs.join('\n')
+      : typeDefs;
 
     this.schema = schema
       ? schema
       : makeExecutableSchema({
-          typeDefs: Array.isArray(typeDefs) ? typeDefs.join('\n') : typeDefs,
+          typeDefs: uploads
+            ? typeDefinitions.concat(`scalar Upload`)
+            : typeDefinitions,
           schemaDirectives,
-          resolvers,
+          resolvers: uploads
+            ? {
+                Upload: GraphQLUpload,
+                ...resolvers,
+              }
+            : resolvers,
         });
 
     if (mocks) {
