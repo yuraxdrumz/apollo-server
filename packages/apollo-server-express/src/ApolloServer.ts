@@ -3,7 +3,11 @@ import * as corsMiddleware from 'cors';
 import { json, OptionsJson } from 'body-parser';
 import { createServer, Server as HttpServer } from 'http';
 import gui from 'graphql-playground-middleware-express';
-import { ApolloServerBase } from 'apollo-server-core';
+import {
+  ApolloServerBase,
+  processFileUploads,
+  formatApolloErrors,
+} from 'apollo-server-core';
 import * as accepts from 'accepts';
 
 import { graphqlExpress } from './expressApollo';
@@ -15,6 +19,36 @@ export interface ServerRegistration {
   cors?: corsMiddleware.CorsOptions;
   bodyParserConfig?: OptionsJson;
 }
+
+const fileUploadMiddleware = (server: ApolloServerBase<express.Request>) => (
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) => {
+  if (server.fileUploadConfig) {
+    const config =
+      typeof this.fileUploadConfig !== 'boolean' ? this.fileUploadConfig : {};
+    if (req.is('multipart/form-data')) {
+      processFileUploads(req, config)
+        .then(body => {
+          req.body = body;
+          next();
+        })
+        .catch(error => {
+          if (error.status && error.expose) res.status(error.status);
+
+          next(
+            formatApolloErrors([error], {
+              formatter: server.requestOptions.formatError,
+              debug: server.requestOptions.debug,
+              logFunction: server.requestOptions.logFunction,
+            }),
+          );
+        });
+    }
+  }
+  next();
+};
 
 export const registerServer = async ({
   app,
@@ -35,6 +69,7 @@ export const registerServer = async ({
     path,
     corsMiddleware(cors),
     json(bodyParserConfig),
+    fileUploadMiddleware(server),
     (req, res, next) => {
       // make sure we check to see if graphql gui should be on
       if (!server.disableTools && req.method === 'GET') {
