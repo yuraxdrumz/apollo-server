@@ -1,6 +1,10 @@
 import * as hapi from 'hapi';
 import { createServer, Server as HttpServer } from 'http';
-import { ApolloServerBase, EngineLauncherOptions } from 'apollo-server-core';
+import {
+  ApolloServerBase,
+  EngineLauncherOptions,
+  processFileUploads,
+} from 'apollo-server-core';
 import { parseAll } from 'accept';
 import { renderPlaygroundPage } from 'graphql-playground-html';
 
@@ -21,6 +25,22 @@ export interface HapiListenOptions {
   launcherOptions?: EngineLauncherOptions;
 }
 
+const handleFileUploads = (server: ApolloServerBase<hapi.Request>) => async (
+  req: hapi.Request,
+  h: hapi.ResponseToolkit,
+) => {
+  if (server.fileUploadConfig) {
+    const config =
+      typeof this.fileUploadConfig !== 'boolean' ? this.fileUploadConfig : {};
+    if (req.mime === 'multipart/form-data') {
+      Object.defineProperty(req, 'payload', {
+        value: await processFileUploads(req, config),
+        writable: false,
+      });
+    }
+  }
+};
+
 export const registerServer = async ({
   app,
   server,
@@ -30,10 +50,12 @@ export const registerServer = async ({
 
   await app.ext({
     type: 'onRequest',
-    method: function(request, h) {
+    method: async function(request, h) {
       if (request.path !== path) {
         return h.continue;
       }
+
+      await handleFileUploads(server)(request, h);
 
       if (!server.disableTools && request.method === 'get') {
         //perform more expensive content-type check only if necessary
